@@ -16,6 +16,7 @@ from mask2former.utils.misc import is_dist_avail_and_initialized
 import random
 import cv2
 import os
+import tel
 
 def unfold_wo_center(x, kernel_size, dilation):
     assert x.dim() == 4
@@ -263,6 +264,16 @@ class VideoSetCriterion(nn.Module):
 
         self._warmup_iters = 2000
         self.register_buffer("_iter", torch.zeros([1]))
+        
+        self.TELloss = tel.TELloss()
+        
+        with open('alpha_beta.txt','r') as f:
+            ab = eval(str(f.read()).replace('\n',''))
+            self.alpha = ab['alpha'];
+            self.beta =  ab['beta'];
+        
+        print('alpha,beta',self.alpha,self.beta)
+        
 
     def loss_labels(self, outputs, targets, indices, num_masks):
         """Classification loss (NLL)
@@ -366,6 +377,10 @@ class VideoSetCriterion(nn.Module):
         images_lab_sim_nei = images_lab_sim_nei.unsqueeze(1)
         images_lab_sim_nei1 = images_lab_sim_nei1.unsqueeze(1)
         images_lab_sim_nei2 = images_lab_sim_nei2.unsqueeze(1)
+        
+        
+      
+        
         if len(src_idx[0].tolist()) > 0:
             images_lab_sim = torch.cat([images_lab_sim[ind][None] for ind in src_idx[0].tolist()]).flatten(0, 1)
             images_lab_sim_nei = self.topk_mask(torch.cat([images_lab_sim_nei[ind][None] for ind in src_idx[0].tolist()]).flatten(0, 1))
@@ -373,18 +388,31 @@ class VideoSetCriterion(nn.Module):
             images_lab_sim_nei2 = self.topk_mask(torch.cat([images_lab_sim_nei2[ind][None] for ind in src_idx[0].tolist()]).flatten(0, 1))
 
         k_size = 3 
-
         if src_masks.shape[0] > 0:
-            pairwise_losses_neighbor = compute_pairwise_term_neighbor(
+            
+            pairwise_losses_neighbor =  compute_pairwise_term_neighbor(
                 src_masks[:,:1], src_masks[:,1:2], k_size, 3
             ) 
-            pairwise_losses_neighbor1 = compute_pairwise_term_neighbor(
+            pairwise_losses_neighbor1 =  compute_pairwise_term_neighbor(
                 src_masks[:,:1], src_masks[:,2:3], k_size, 3
             ) 
             pairwise_losses_neighbor2 = compute_pairwise_term_neighbor(
                 src_masks[:,1:2], src_masks[:,2:3], k_size, 3
             )
             
+            telloss = 0.0
+            if self.alpha>=1:
+                telloss = self.TELloss(src_masks,3)
+
+                pairwise_losses_neighbor  = pairwise_losses_neighbor  + (self.beta*(telloss[0]*pairwise_losses_neighbor))
+                pairwise_losses_neighbor1 = pairwise_losses_neighbor1 + (self.beta*(telloss[1]*pairwise_losses_neighbor1))
+                pairwise_losses_neighbor2 = pairwise_losses_neighbor2 + (self.beta*(telloss[2]*pairwise_losses_neighbor2))
+                
+                #print('telloss',telloss)
+
+           
+        
+       
         src_masks = src_masks.flatten(0, 1)[:, None]
         target_masks = target_masks.flatten(0, 1)[:, None]
         target_masks = F.interpolate(target_masks, (src_masks.shape[-2], src_masks.shape[-1]), mode='bilinear')        
@@ -395,6 +423,7 @@ class VideoSetCriterion(nn.Module):
             pairwise_losses = compute_pairwise_term(
                 src_masks, 3, 2
             )
+            
             weights = (images_lab_sim >= 0.3).float() * target_masks.float()
             target_masks_sum = target_masks.reshape(pairwise_losses_neighbor.shape[0], 3, target_masks.shape[-2], target_masks.shape[-1]).sum(dim=1, keepdim=True)
             target_masks_sum = (target_masks_sum >= 1.0).float()
@@ -422,6 +451,7 @@ class VideoSetCriterion(nn.Module):
             "loss_dice": src_masks.sum() * 0.,
             "loss_bound": loss_pairwise,
             "loss_bound_neighbor": (loss_pairwise_neighbor + loss_pairwise_neighbor1 + loss_pairwise_neighbor2) * 0.1,
+            "telloss":telloss
         }
 
         del src_masks

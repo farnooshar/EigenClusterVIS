@@ -2,6 +2,8 @@
 
 import os
 
+#MaskFreeVIS/mask2former_video/data_video/datasets/builtin2.py
+
 from .ytvis import (
     register_ytvis_instances,
     _get_ytvis_2019_instances_meta,
@@ -13,26 +15,27 @@ from detectron2.data.datasets.builtin_meta import _get_builtin_metadata
 
 _PREDEFINED_SPLITS_COCO = {}
 _PREDEFINED_SPLITS_COCO["coco"] = {
-    "coco_2017_train_fake": ("coco/train2017", "coco/annotations/coco2ytvis2019_train.json"),
+    "coco_2017_train_fake": ("/home/user01/stem/COCO/train2017", "/home/user01/MaskFreeVIS/coco2ytvis2019_train.json"),
 }
 
 # ==== Predefined splits for YTVIS 2019 ===========
+
+
 _PREDEFINED_SPLITS_YTVIS_2019 = {
-    "ytvis_2019_train": ("ytvis_2019/train/JPEGImages",
-                         "ytvis_2019/train.json"), 
-    "ytvis_2019_val": ("ytvis_2019/valid/JPEGImages",
-                       "ytvis_2019/valid.json"),
+    "ytvis_2019_train": ("/home/user01/train/JPEGImages",
+                         "/home/user01/CrossVIS/train.json"), 
+    "ytvis_2019_val": ("/home/user01/valid/JPEGImages",
+                       "/home/user01/CrossVIS/valid.json"),
     "ytvis_2019_test": ("ytvis_2019/test/JPEGImages",
                         "ytvis_2019/test.json"),
 }
 
-
 # ==== Predefined splits for YTVIS 2021 ===========
 _PREDEFINED_SPLITS_YTVIS_2021 = {
-    "ytvis_2021_train": ("ytvis_2021/train/JPEGImages",
-                         "ytvis_2021/train.json"),
-    "ytvis_2021_val": ("ytvis_2021/valid/JPEGImages",
-                       "ytvis_2021/valid.json"),
+    "ytvis_2021_train": ("/home/user01/vis2022/train/JPEGImages",
+                         "/home/user01/vis2022/train/instances.json"),
+    "ytvis_2021_val": ("/home/user01/vis2022/valid/JPEGImages",
+                       "/home/user01/vis2022/valid/instances.json"),
     "ytvis_2021_test": ("ytvis_2021/test/JPEGImages",
                         "ytvis_2021/test.json"),
 }

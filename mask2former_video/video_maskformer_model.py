@@ -20,6 +20,9 @@ from .utils.memory import retry_if_cuda_oom
 from skimage import color
 import cv2
 import numpy as np
+import pickle
+import torch.nn.functional as F
+import qcc
 
 def unfold_wo_center(x, kernel_size, dilation):
     assert x.dim() == 4
@@ -109,6 +112,7 @@ def get_neighbor_images_patch_color_similarity(images, images_neighbor, kernel_s
 
 logger = logging.getLogger(__name__)
 
+import copy
 
 @META_ARCH_REGISTRY.register()
 class VideoMaskFormer(nn.Module):
@@ -175,8 +179,17 @@ class VideoMaskFormer(nn.Module):
         self.register_buffer("pixel_std", torch.Tensor(pixel_std).view(-1, 1, 1), False)
 
         self.num_frames = num_frames
-        #self.structure_fc = nn.Conv2d(27, 256, 1)
-
+        
+        self.QCC = qcc.QCC()
+        
+        with open('alpha_beta.txt','r') as f:
+            ab = eval(str(f.read()).replace('\n',''))
+            self.alpha = ab['alpha'];
+            self.beta = ab['beta'];
+        
+        print('alpha,beta',self.alpha,self.beta)
+        
+        
     @classmethod
     def from_config(cls, cfg):
         backbone = build_backbone(cfg)
@@ -267,46 +280,95 @@ class VideoMaskFormer(nn.Module):
                         Each dict contains keys "id", "category_id", "isthing".
         """
         images = []
-        
+        zfilename = []
         for video in batched_inputs:
             for frame in video["image"]:
                 images.append(frame.to(self.device))
-
+            for frame in video["file_names"]:
+                zfilename.append(frame)
+        
         is_coco = (len(images) == 8) or (len(images) == 4)# change here, 4 is for swinl with bs 1 which cannot afford batch size 2
+        
         if self.training and not is_coco:
             k_size = 3 
             rs_images = ImageList.from_tensors(images, self.size_divisibility)
-            downsampled_images = F.avg_pool2d(rs_images.tensor.float(), kernel_size=4, stride=4, padding=0) #for img in images]
+            
+            B,C,H,W = rs_images.tensor.size()
+            
+            if H*W>=424200:
+                downsampled_images = F.avg_pool2d(F.interpolate(rs_images.tensor.float(), size=(480, 864), mode='bilinear', align_corners=False), kernel_size=4, stride=4, padding=0) #for img in images]
+                
+            else:
+                downsampled_images = F.avg_pool2d(rs_images.tensor.float(), kernel_size=4, stride=4, padding=0) #for img in images]
             images_lab = [torch.as_tensor(color.rgb2lab(ds_image[[2, 1, 0]].byte().permute(1, 2, 0).cpu().numpy()), device=ds_image.device, dtype=torch.float32).permute(2, 0, 1) for ds_image in downsampled_images]
             images_lab_sim = [get_images_color_similarity(img_lab.unsqueeze(0), k_size, 2) for img_lab in images_lab] # ori is 0.3, 0.5, 0.7
-            images_lab_sim_nei = [get_neighbor_images_patch_color_similarity(images_lab[ii].unsqueeze(0), images_lab[ii+1].unsqueeze(0), 3, 3) for ii in range(0, len(images_lab), 3)] # change k form 3 to 5, ori is 3, ori dilation is 3
-            images_lab_sim_nei1 = [get_neighbor_images_patch_color_similarity(images_lab[ii].unsqueeze(0), images_lab[ii+2].unsqueeze(0), 3, 3) for ii in range(0, len(images_lab), 3)]
-            images_lab_sim_nei2 = [get_neighbor_images_patch_color_similarity(images_lab[ii+1].unsqueeze(0), images_lab[ii+2].unsqueeze(0), 3, 3) for ii in range(0, len(images_lab), 3)]
+            
+
+            images_lab_sim_nei = [get_neighbor_images_patch_color_similarity(images_lab[ii].unsqueeze(0), images_lab[ii+1].unsqueeze(0), 3, 3) for ii in range(0, len(images_lab)-2, 3)] # change k form 3 to 5, ori is 3, ori dilation is 3
+            images_lab_sim_nei1 = [get_neighbor_images_patch_color_similarity(images_lab[ii].unsqueeze(0), images_lab[ii+2].unsqueeze(0), 3, 3) for ii in range(0, len(images_lab)-2, 3)]
+            images_lab_sim_nei2 = [get_neighbor_images_patch_color_similarity(images_lab[ii+1].unsqueeze(0), images_lab[ii+2].unsqueeze(0), 3, 3) for ii in range(0, len(images_lab)-2, 3)]
 
             
 
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
 
-        features = self.backbone(images.tensor)
+
+        B,C,H,W = images.tensor.size()
+        
+        tz=0;
+
+        if self.training:
+            if H*W>=424200:
+                features = self.backbone(F.interpolate(images.tensor, size=(480, 864), mode='bilinear', align_corners=False))
+                H=480;W=864
+                tz = 1;
+        
+        if tz==0:
+            features = self.backbone(images.tensor)
+
         outputs = self.sem_seg_head(features)
 
         if self.training:
             # mask classification target
             targets = self.prepare_targets(batched_inputs, images, is_coco)
+            
+            if tz==1:
+                for gkey in targets:
+                    for key in gkey.keys():
+                        #print(key,gkey[key].size())
+                        if key == 'masks':
+                            gkey[key] = F.interpolate(gkey[key], size=(H, W), mode='nearest')
+          
+           
             if not is_coco:
                 # bipartite matching-based loss
                 losses = self.criterion(outputs, targets, images_lab_sim, images_lab_sim_nei, images_lab_sim_nei1, images_lab_sim_nei2)
+                
+                
             else:
                 losses = self.criterion(outputs, targets, None, None, None, None)
 
+            ############################## QCC ##############################
+            KK=[];
+            for gkey in targets:
+                KK.append(gkey['labels'].size()[0])
+                
+            if self.alpha>=1:
+                qccv =self.QCC(outputs['pred_masks'],KK)
+                #print('qccv',qccv)
+
             for k in list(losses.keys()):
                 if k in self.criterion.weight_dict:
-                    losses[k] *= self.criterion.weight_dict[k]
+                    if self.alpha>=1:
+                        losses[k] *= self.criterion.weight_dict[k] * (1.0*qccv)
+                    else:
+                        losses[k] *= self.criterion.weight_dict[k]
                 else:
-                    # remove this loss if not specified in `weight_dict`
                     losses.pop(k)
             return losses
+        
+
         else:
             mask_cls_results = outputs["pred_logits"]
             mask_pred_results = outputs["pred_masks"]
@@ -340,6 +402,7 @@ class VideoMaskFormer(nn.Module):
             else:
                 mask_shape = [_num_instance, self.num_frames, h_pad, w_pad]
 
+            #print('mask_shape>>>> ',mask_shape,self.num_frames)
             gt_masks_per_video = torch.zeros(mask_shape, dtype=torch.bool, device=self.device)
             gt_classes_per_video = targets_per_video["instances"][0].gt_classes.to(self.device)
 
@@ -354,6 +417,8 @@ class VideoMaskFormer(nn.Module):
                 if isinstance(targets_per_frame.gt_masks, BitMasks):
                     gt_masks_per_video[:, f_i, :h, :w] = targets_per_frame.gt_masks.tensor
                 else: #polygon
+                    #print('>>>>>>>>>>>  gt_masks_per_video',gt_masks_per_video.size(),'targets_per_frame.gt_masks ',targets_per_frame.gt_masks.size())
+                    #print('>>>>>>>>>>> ',f_i,h,w)
                     gt_masks_per_video[:, f_i, :h, :w] = targets_per_frame.gt_masks
 
 
