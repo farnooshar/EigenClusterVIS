@@ -5,7 +5,7 @@ This repository contains the source code for [Eigen-Cluster VIS: A Novel Weakly-
 
 
 To prepare and install and train for steps 1 and 2, you can use this [link](https://github.com/SysCV/MaskFreeVIS).
-All the weights are in this [link](https://github.com/SysCV/MaskFreeVIS).
+All the weights are in this [link](https://drive.google.com/drive/folders/1wuMx4afjt_KuXaL2LjiLhicQdiPOguGR?usp=sharing).
 
 ## Inference
 
