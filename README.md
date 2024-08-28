@@ -1,6 +1,6 @@
 This repository contains the source code for [Eigen-Cluster VIS: A Novel Weakly-Supervised Video Instance Segmentation Method](https://)<br/>
 
-<img src="Fig1-1.png">
+<img src="Fig1-1.jpg">
 <img src="Diagram.png">
 
 
