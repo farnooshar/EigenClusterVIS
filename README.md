@@ -32,6 +32,7 @@ All the weights are in this [link](https://github.com/SysCV/MaskFreeVIS).
 ```
 
 ## Train
+```Shell
 #R50
 #2300 iter is good.
 ! cp alpha_beta_r50.txt alpha_beta.txt && CUDA_VISIBLE_DEVICES=0 python3 train_net_video_r50_s3.py --num-gpus 1 --resume --dist-url tcp://0.0.0.0:12349\
@@ -39,8 +40,6 @@ All the weights are in this [link](https://github.com/SysCV/MaskFreeVIS).
 ```
 
 ```Shell
-#R101
-
 #R101
 #2700 iter is good.
 
