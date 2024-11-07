@@ -15,7 +15,7 @@ class QCC(nn.Module):
         new_H = int(H // 4)
         new_W = int(W // 4)
 
-        tensor = torch.nn.functional.interpolate(tensor.view(B * T, C, H, W), size=(new_H, new_W), mode='bilinear', align_corners=False).view(B, T, C, new_H, new_W)
+        tensor = torch.nn.functional.interpolate(tensor.view(B * T, C, H, W), size=(new_H, new_W), mode='bilinear', align_corners=False).view(B, C, T, new_H, new_W)
 
     
         total_loss = 0.0
